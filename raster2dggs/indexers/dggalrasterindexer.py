@@ -32,14 +32,13 @@ class DGGALRasterIndexer(RasterIndexer):
     def dggrs(self) -> dggal.DGGRS:
         raise NotImplementedError
 
-    @lru_cache(maxsize=10000)
+    @lru_cache(maxsize=None)
     def _get_parent(self, zone: int) -> int:
         """
         Get immediate parent with caching.
         Used recursively, the LRU cache will naturally evict leaf cells which don't benefit from caching.
         """
         # NB  All zones of GNOSIS Global Grid and ISEA9R have single parents, whereas ISEA3H zones have one parent if they are a centroid child, and three parents otherwise if they are a vertex child.  See dggrs.getMaxParents()
-        print(zone)
         parents = self.dggrs.getZoneParents(zone)
         if self.dggrs.getMaxParents() == 1:
             return parents[0]
