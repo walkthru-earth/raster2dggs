@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import textwrap
+import tempfile
 from typing import List, Optional
 
 import click
@@ -13,7 +14,7 @@ from raster2dggs import __version__
 
 @dataclass(frozen=True)
 class DGGS_Spec:
-    name: str  # command name and dggs key used by your indexers
+    name: str  # command name and dggs key used by indexers
     pretty: str  # for help text
     min_res: int
     max_res: int
@@ -37,15 +38,18 @@ SPECS: List[DGGS_Spec] = [
     DGGS_Spec("a5", "A5", const.MIN_A5, const.MAX_A5, 8),
     DGGS_Spec("isea4r", "ISEA4R", const.MIN_ISEA4R, const.MAX_ISEA4R, 8),
     DGGS_Spec("isea9r", "ISEA9R", const.MIN_ISEA9R, const.MAX_ISEA9R, 5),
+    DGGS_Spec("isea3h", "ISEA3H", const.MIN_ISEA3H, const.MAX_ISEA3H, 10),
     DGGS_Spec("isea7h", "ISEA7H", const.MIN_ISEA7H, const.MAX_ISEA7H, 6),
     # DGGS_Spec("isea7h_z7", "ISEA7H_Z7", const.MIN_ISEA7H_Z7, const.MAX_ISEA7H_Z7, 6),
     DGGS_Spec("ivea4r", "IVEA4R", const.MIN_IVEA4R, const.MAX_IVEA4R, 8),
     DGGS_Spec("ivea9r", "IVEA9R", const.MIN_IVEA9R, const.MAX_IVEA9R, 5),
+    DGGS_Spec("ivea3h", "IVEA3H", const.MIN_IVEA3H, const.MAX_IVEA3H, 10),
     DGGS_Spec("ivea7h", "IVEA7H", const.MIN_IVEA7H, const.MAX_IVEA7H, 6),
     # DGGS_Spec("ivea7h_z7", "IVEA7H_Z7", const.MIN_IVEA7H_Z7, const.MAX_IVEA7H_Z7, 6),
     DGGS_Spec("rtea4r", "RTEA9R", const.MIN_RTEA4R, const.MAX_RTEA4R, 8),
     DGGS_Spec("rtea9r", "RTEA9R", const.MIN_RTEA9R, const.MAX_RTEA9R, 5),
     DGGS_Spec("rtea7h", "RTEA7H", const.MIN_RTEA7H, const.MAX_RTEA7H, 6),
+    # DGGS_Spec("rtea7h_z7", "RTEA7H_Z7", const.MIN_RTEA7H_Z7, const.MAX_RTEA7H_Z7, 6),
     DGGS_Spec("healpix", "HEALPix", const.MIN_HEALPIX, const.MAX_HEALPIX, 5),
     # DGGS_Spec("rhealpix", "rHEALPix", const.MIN_RHEALPIX, const.MAX_RHEALPIX, 5), # Prefer rhp
 ]
@@ -78,9 +82,7 @@ def run_index(
     geo: str,
     tempdir,
 ):
-    import tempfile as _tempfile  # local import to avoid any confusion
-
-    _tempfile.tempdir = tempdir if tempdir is not None else _tempfile.tempdir
+    tempfile.tempdir = tempdir if tempdir is not None else tempfile.tempdir
 
     common.check_resolutions(resolution, parent_res)
 

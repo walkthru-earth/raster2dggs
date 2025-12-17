@@ -1,13 +1,11 @@
 """
-@author: ndemaio
+@author: alpha-beta-soup
 """
 
 from abc import abstractmethod
-from functools import reduce
+from functools import reduce, lru_cache
 from numbers import Number
 from typing import List, Tuple
-
-import h3pandas  # Necessary import despite lack of explicit use
 
 import dggal
 import pandas as pd
@@ -20,18 +18,13 @@ import raster2dggs.constants as const
 
 from raster2dggs.indexers.rasterindexer import RasterIndexer
 
-
-# TODO memoisation; needs to use hashable inputs and outputs (int)
-def apply_n_reduce(f, n, x):
-    def step(v):
-        return f(v)[0]
-
-    return reduce(lambda v, _: step(v), range(n), x)
+# Instantiate DGGAL
+dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
 
 
 class DGGALRasterIndexer(RasterIndexer):
     """
-    Provides integration for Uber's H3 DGGS.
+    Provides integration for DGGRSs depending on the DGGAL API.
     """
 
     @property
@@ -39,10 +32,28 @@ class DGGALRasterIndexer(RasterIndexer):
     def dggrs(self) -> dggal.DGGRS:
         raise NotImplementedError
 
-    @property
-    @abstractmethod
-    def refinementRatio(self) -> int:
-        raise NotImplementedError
+    @lru_cache(maxsize=10000)
+    def _get_parent(self, zone: int) -> int:
+        """
+        Get immediate parent with caching.
+        Used recursively, the LRU cache will naturally evict leaf cells which don't benefit from caching.
+        """
+        # NB  All zones of GNOSIS Global Grid and ISEA9R have single parents, whereas ISEA3H zones have one parent if they are a centroid child, and three parents otherwise if they are a vertex child.  See dggrs.getMaxParents()
+        print(zone)
+        parents = self.dggrs.getZoneParents(zone)
+        if self.dggrs.getMaxParents() == 1:
+            return parents[0]
+        # Find centroid parent for multi-parent DGGRS
+        return next(
+            (p for p in parents if self.dggrs.isZoneCentroidChild(p)), parents[0]
+        )
+
+    def _get_ancestor(self, zone: int, levels_up: int = 1) -> int:
+        """Get ancestor by repeatedly calling cached parent lookup."""
+        parent = zone
+        for _ in range(levels_up):
+            parent = self._get_parent(int(parent))
+        return parent
 
     def index_func(
         self,
@@ -74,8 +85,7 @@ class DGGALRasterIndexer(RasterIndexer):
             for lon, lat in zip(subset["y"], subset["x"])
         ]  # Vectorised
         dggrs_parent = [
-            apply_n_reduce(self.dggrs.getZoneParents, resolution - parent_res, zone)
-            for zone in cells
+            self._get_ancestor(zone, resolution - parent_res) for zone in cells
         ]
         subset = subset.drop(columns=["x", "y"])
         index_col = self.index_col(resolution)
@@ -100,7 +110,7 @@ class DGGALRasterIndexer(RasterIndexer):
         """
         current_resolution = self.dggrs.getZoneLevel(self.dggrs.getZoneFromTextID(cell))
         n = desired_resolution - current_resolution
-        return self.refinementRatio**n
+        return self.dggrs.getRefinementRatio() ** n
 
     @staticmethod
     def valid_set(cells: set) -> set[str]:
@@ -119,10 +129,8 @@ class DGGALRasterIndexer(RasterIndexer):
         )
         return map(
             lambda zone: self.dggrs.getZoneTextID(
-                apply_n_reduce(
-                    self.dggrs.getZoneParents,
-                    child_resolution - resolution,
-                    self.dggrs.getZoneFromTextID(zone),
+                self._get_ancestor(
+                    self.dggrs.getZoneFromTextID(zone), child_resolution - resolution
                 )
             ),
             cells,
@@ -140,19 +148,13 @@ class DGGALRasterIndexer(RasterIndexer):
         )
         return shapely.Point(geo_point.lon, geo_point.lat)
 
-    def cell_to_polygon(self, cell: str) -> shapely.geometry.Polygon:
-        geo_points: List[dggal.GeoPoint] = self.dggrs.getZoneWGS84Vertices(
-            self.dggrs.getZoneFromTextID(cell)
+    def cell_to_polygon(
+        self, cell: str, edgeRefinement: int = 0
+    ) -> shapely.geometry.Polygon:
+        geo_points: List[dggal.GeoPoint] = self.dggrs.getZoneRefinedWGS84Vertices(
+            self.dggrs.getZoneFromTextID(cell), edgeRefinement
         )
         return shapely.Polygon(tuple([(p.lon, p.lat) for p in geo_points]))
-
-
-# def ISEA7HRasterIndexer(DGGALRasterIndexer):
-#     def __init__(self, dggs: str):
-#         super().__init__(dggs)
-#         self.dggrs = dggal.ISEA7H()
-
-# NB  All zones of GNOSIS Global Grid and ISEA9R have single parents, whereas ISEA3H zones have one parent if they are a centroid child, and three parents otherwise if they are a vertex child.  See dggrs.getMaxParents()
 
 
 class ISEA4RRasterIndexer(DGGALRasterIndexer):
@@ -162,17 +164,11 @@ class ISEA4RRasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.ISEA4R()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
-
-    @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
 
 
 class IVEA4RRasterIndexer(DGGALRasterIndexer):
@@ -182,17 +178,11 @@ class IVEA4RRasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.IVEA4R()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
-
-    @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
 
 
 class ISEA9RRasterIndexer(DGGALRasterIndexer):
@@ -202,17 +192,11 @@ class ISEA9RRasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.ISEA9R()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
-
-    @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
 
 
 class IVEA9RRasterIndexer(DGGALRasterIndexer):
@@ -222,17 +206,39 @@ class IVEA9RRasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.IVEA9R()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
 
+
+class ISEA3HRasterIndexer(DGGALRasterIndexer):
+    """
+    A raster indexer for the ISEA3H DGGS, an equal area hexagonal grid with a refinement ratio of 3 defined in the ISEA projection.
+    """
+
+    def __init__(self, dggs: str):
+        super().__init__(dggs)
+        self._dggrs = dggal.ISEA3H()
+
     @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
+    def dggrs(self) -> dggal.DGGRS:
+        return self._dggrs
+
+
+class IVEA3HRasterIndexer(DGGALRasterIndexer):
+    """
+    A raster indexer for the IVEA3H DGGS, an equal area hexagonal grid with a refinement ratio of 3 defined in the IVEA projection, using the same global indexing and sub-zone ordering as for ISEA3H.
+    """
+
+    def __init__(self, dggs: str):
+        super().__init__(dggs)
+        self._dggrs = dggal.IVEA3H()
+
+    @property
+    def dggrs(self) -> dggal.DGGRS:
+        return self._dggrs
 
 
 class ISEA7HRasterIndexer(DGGALRasterIndexer):
@@ -242,17 +248,11 @@ class ISEA7HRasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.ISEA7H()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
-
-    @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
 
 
 class IVEA7HRasterIndexer(DGGALRasterIndexer):
@@ -262,17 +262,11 @@ class IVEA7HRasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.IVEA7H()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
-
-    @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
 
 
 class ISEA7HZ7RasterIndexer(DGGALRasterIndexer):
@@ -282,17 +276,11 @@ class ISEA7HZ7RasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.ISEA7H_Z7()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
-
-    @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
 
 
 class IVEA7HZ7RasterIndexer(DGGALRasterIndexer):
@@ -302,17 +290,11 @@ class IVEA7HZ7RasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.IVEA7H_Z7()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
-
-    @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
 
 
 class RTEA4RRasterIndexer(DGGALRasterIndexer):
@@ -322,17 +304,11 @@ class RTEA4RRasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.RTEA4R()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
-
-    @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
 
 
 class RTEA9RRasterIndexer(DGGALRasterIndexer):
@@ -342,17 +318,25 @@ class RTEA9RRasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.RTEA9R()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
 
+
+class RTEA3HRasterIndexer(DGGALRasterIndexer):
+    """
+    A raster indexer for the RTEA3H DGGS, an equal area hexagonal grid with a refinement ratio of 3 defined in the RTEA projection using the same global indexing and sub-zone ordering as for ISEA3H.
+    """
+
+    def __init__(self, dggs: str):
+        super().__init__(dggs)
+        self._dggrs = dggal.RTEA3H()
+
     @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
+    def dggrs(self) -> dggal.DGGRS:
+        return self._dggrs
 
 
 class RTEA7HRasterIndexer(DGGALRasterIndexer):
@@ -362,17 +346,11 @@ class RTEA7HRasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.RTEA7H()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
-
-    @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
 
 
 class RTEA7HZ7RasterIndexer(DGGALRasterIndexer):
@@ -382,17 +360,11 @@ class RTEA7HZ7RasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.RTEA7H_Z7()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
-
-    @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
 
 
 class HEALPixRasterIndexer(DGGALRasterIndexer):
@@ -402,17 +374,11 @@ class HEALPixRasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.HEALPix()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
-
-    @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio
 
 
 class RHEALPixRasterIndexer(DGGALRasterIndexer):
@@ -422,14 +388,8 @@ class RHEALPixRasterIndexer(DGGALRasterIndexer):
 
     def __init__(self, dggs: str):
         super().__init__(dggs)
-        dggal.pydggal_setup(dggal.Application(appGlobals=globals()))
         self._dggrs = dggal.rHEALPix()
-        self._refinementRatio = self.dggrs.getRefinementRatio()
 
     @property
     def dggrs(self) -> dggal.DGGRS:
         return self._dggrs
-
-    @property
-    def refinementRatio(self) -> int:
-        return self._refinementRatio

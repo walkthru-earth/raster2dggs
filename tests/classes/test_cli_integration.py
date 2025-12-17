@@ -36,11 +36,11 @@ class LiveTimer:
         start = time.perf_counter()
         while not self._stop.is_set():
             elapsed = time.perf_counter() - start
-            sys.stdout.write(f"\r{self.label} ... {elapsed:6.2f}s")
+            sys.stdout.write(f"\r{self.label} \t{elapsed:6.2f}s")
             sys.stdout.flush()
             time.sleep(self.interval)
         elapsed = time.perf_counter() - start
-        sys.stdout.write(f"\r{self.label} ... {elapsed:6.2f}s\n")
+        sys.stdout.write(f"\r{self.label} \t{elapsed:6.2f}s\n")
         sys.stdout.flush()
 
     def start(self):
@@ -57,7 +57,7 @@ class TestAllDGGS(TestRunthrough):
         for spec in SPECS:
             res = safe_resolution(spec)
             for geo in (None, "point", "polygon"):
-                timer = LiveTimer(f"Testing {spec.pretty} --geo {geo}")
+                timer = LiveTimer(f"Testing {spec.pretty}\t--geo {geo}")
                 timer.start()
                 try:
                     with self.subTest(dggs=spec.name, geo=geo):

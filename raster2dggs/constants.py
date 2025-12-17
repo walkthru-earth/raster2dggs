@@ -10,7 +10,7 @@ MIN_A5, MAX_A5 = (0, 30)
 MIN_ISEA4R, MAX_ISEA4R = (
     0,
     25,
-)
+)  # dggrs.getMaxDGGRSZoneLevel
 MIN_ISEA9R, MAX_ISEA9R = (
     0,
     16,
@@ -18,6 +18,10 @@ MIN_ISEA9R, MAX_ISEA9R = (
 MIN_ISEA9R, MAX_ISEA9R = (
     0,
     16,
+)
+MIN_ISEA3H, MAX_ISEA3H = (
+    0,
+    33,
 )
 MIN_ISEA7H, MAX_ISEA7H = (
     0,
@@ -35,6 +39,10 @@ MIN_IVEA9R, MAX_IVEA9R = {
     0,
     16,
 }
+MIN_IVEA3H, MAX_IVEA3H = (
+    0,
+    33,
+)
 MIN_IVEA7H, MAX_IVEA7H = (
     0,
     19,
@@ -50,6 +58,10 @@ MIN_RTEA4R, MAX_RTEA4R = (
 MIN_RTEA9R, MAX_RTEA9R = (
     0,
     16,
+)
+MIN_RTEA3H, MAX_RTEA3H = (
+    0,
+    33,
 )
 MIN_RTEA7H, MAX_RTEA7H = (
     0,
@@ -93,14 +105,17 @@ def zero_padding(dggs: str) -> int:
         "a5": MAX_A5,
         "isea4r": MAX_ISEA4R,
         "isea9r": MAX_ISEA9R,
+        "isea3h": MAX_ISEA3H,
         "isea7h": MAX_ISEA7H,
         "isea7h_z7": MAX_ISEA7H_Z7,
         "ivea4r": MAX_IVEA4R,
         "ivea9r": MAX_IVEA9R,
+        "ivea3h": MAX_IVEA3H,
         "ivea7h": MAX_IVEA7H,
         "ivea7h_z7": MAX_IVEA7H_Z7,
         "rtea4r": MAX_RTEA4R,
         "rtea9r": MAX_RTEA9R,
+        "rtea3h": MAX_RTEA3H,
         "rtea7h": MAX_RTEA7H,
         "rtea7h_z7": MAX_RTEA7H_Z7,
         "healpix": MAX_HEALPIX,
