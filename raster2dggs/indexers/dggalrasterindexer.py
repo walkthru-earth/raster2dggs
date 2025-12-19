@@ -38,13 +38,15 @@ class DGGALRasterIndexer(RasterIndexer):
         Get immediate parent with caching.
         Used recursively, the LRU cache will naturally evict leaf cells which don't benefit from caching.
         """
-        # NB  All zones of GNOSIS Global Grid and ISEA9R have single parents, whereas ISEA3H zones have one parent if they are a centroid child, and three parents otherwise if they are a vertex child.  See dggrs.getMaxParents()
+        # NB  All zones of GNOSIS Global Grid and *9R have single parents, whereas *3H zones have one parent if they are a centroid child, and three parents otherwise if they are a vertex child.
+        # *7H zones have one parent "logically" but possibly more "geometrically". *7H zones are considered to have only one parent for the purposes of this tool, which conforms to the same assumption as H3, which has a refinement ratio of 7.
+        # See dggrs.getMaxParents()
+        if self.dggs in ("isea3h", "ivea3h", "rtea3h"):
+            return self.dggrs.getZoneCentroidParent(zone)
         parents = self.dggrs.getZoneParents(zone)
-        if self.dggrs.getMaxParents() == 1:
-            return parents[0]
         # Find centroid parent for multi-parent DGGRS
         return next(
-            (p for p in parents if self.dggrs.isZoneCentroidChild(p)), parents[0]
+            (p for p in parents if self.dggrs.isZoneCentroidChild(zone)), parents[0]
         )
 
     def _get_ancestor(self, zone: int, levels_up: int = 1) -> int:
@@ -107,9 +109,14 @@ class DGGALRasterIndexer(RasterIndexer):
 
         Implementation of interface function.
         """
-        current_resolution = self.dggrs.getZoneLevel(self.dggrs.getZoneFromTextID(cell))
-        n = desired_resolution - current_resolution
-        return self.dggrs.getRefinementRatio() ** n
+        zone = self.dggrs.getZoneFromTextID(cell)
+        current_resolution = self.dggrs.getZoneLevel(zone)
+        depth = desired_resolution - current_resolution
+
+        if self.dggs in ("isea3h", "ivea3h", "rtea3h"):
+            return self.dggrs.countSubZones(zone, depth)
+
+        return self.dggrs.getRefinementRatio() ** depth
 
     @staticmethod
     def valid_set(cells: set) -> set[str]:
@@ -118,22 +125,52 @@ class DGGALRasterIndexer(RasterIndexer):
         """
         return set(filter(lambda c: (not pd.isna(c)), cells))
 
-    def parent_cells(self, cells: set, resolution) -> map:
+    def parent_cells(self, cells: set, resolution: int) -> map:
         """
         Implementation of interface function.
         """
-        # TODO appropriately handle potential for multiple parentage in dggal (e.g. ISEAH3)
         child_resolution = self.dggrs.getZoneLevel(
             self.dggrs.getZoneFromTextID(next(iter(cells)))
         )
+        relative_depth = child_resolution - resolution
+
+        if self.dggs in ("isea3h", "ivea3h", "rtea3h"):
+            all_parents = []
+            for zone_text in cells:
+                zone = self.dggrs.getZoneFromTextID(zone_text)
+                # Get ancestors via all parent paths
+                ancestors = self._get_all_ancestors_3h(zone, relative_depth)
+                all_parents.extend(self.dggrs.getZoneTextID(a) for a in ancestors)
+            return all_parents
+
         return map(
             lambda zone: self.dggrs.getZoneTextID(
-                self._get_ancestor(
-                    self.dggrs.getZoneFromTextID(zone), child_resolution - resolution
-                )
+                self._get_ancestor(self.dggrs.getZoneFromTextID(zone), relative_depth)
             ),
             cells,
         )
+
+    def _get_all_ancestors_3h(self, zone: int, levels_up: int) -> set:
+        """
+        For 3H DGGRS, get all ancestors at specified level via all parent paths.
+        A vertex child has 3 parents, so this returns up to 3^levels_up ancestors.
+        """
+        if levels_up == 0:
+            return {zone}
+
+        # Get immediate parents
+        parents = map(int, self.dggrs.getZoneParents(zone))
+
+        if levels_up == 1:
+            return set(parents)
+
+        # Recursively get ancestors through all parent paths
+        all_ancestors = set()
+        for parent in parents:
+            ancestors = self._get_all_ancestors_3h(parent, levels_up - 1)
+            all_ancestors.update(ancestors)
+
+        return all_ancestors
 
     def expected_count(self, parent: str, resolution: int):
         """
@@ -154,6 +191,150 @@ class DGGALRasterIndexer(RasterIndexer):
             self.dggrs.getZoneFromTextID(cell), edgeRefinement
         )
         return shapely.Polygon(tuple([(p.lon, p.lat) for p in geo_points]))
+
+    def compaction(
+        self, df: pd.DataFrame, resolution: int, parent_res: int
+    ) -> pd.DataFrame:
+        if self.dggs in ("isea3h", "ivea3h", "rtea3h"):
+            return self._compaction_3h(df, resolution, parent_res)
+        return super().compaction(df, resolution, parent_res)
+
+    def _compaction_3h(
+        self, df: pd.DataFrame, resolution: int, parent_res: int
+    ) -> pd.DataFrame:
+        """
+        Compact cells with identical values for multi-parent DGGRS (refinement ratio 3).
+    
+        For hexagonal grids with refinement ratio 3 (ISEA3H, IVEA3H, RTEA3H), vertex 
+        children have multiple parents in the hierarchy.
+        The same logic should apply for the *4H case.
+        
+        This method performs bottom-up 
+        compaction where:
+        
+        1. Cells are grouped by their band values
+        2. For each level from finest (resolution) to coarsest (parent_res):
+            - A parent cell replaces its children if ALL children are present and share 
+              identical values across all bands
+        3. A child cell is removed only if ALL of its parents successfully compact
+        4. Vertex children can contribute to multiple parent compactions simultaneously
+        
+        This approach respects the multi-parent topology while maximizing data reduction,
+        ensuring that regions with homogeneous values are represented at the coarsest 
+        appropriate level.
+        
+        Args:
+            df: DataFrame indexed by fine-resolution cell IDs with band value columns
+            resolution: Finest resolution level of input cells
+            parent_res: Coarsest resolution level to compact to (lower limit)
+        
+        Returns:
+            DataFrame with compacted cells at mixed resolutions (between parent_res and 
+            resolution), maintaining the fine-resolution column as index and including 
+            the parent_res ancestor for partitioning.
+        
+        Note:
+            For single-parent DGGRS, use the standard compaction method.
+        """
+
+        band_cols = self.band_cols(df)
+        index_col = self.index_col(resolution)
+        partition_col = self.partition_col(parent_res)
+
+        @lru_cache(maxsize=100000)
+        def get_level(cell_id: str) -> int:
+            return self.dggrs.getZoneLevel(self.dggrs.getZoneFromTextID(cell_id))
+
+        @lru_cache(maxsize=100000)
+        def get_parents(cell_id: str) -> tuple:
+            zone = self.dggrs.getZoneFromTextID(cell_id)
+            return tuple(
+                self.dggrs.getZoneTextID(p) for p in self.dggrs.getZoneParents(zone)
+            )
+
+        @lru_cache(maxsize=10000)
+        def get_child_count(parent_id: str) -> int:
+            zone = self.dggrs.getZoneFromTextID(parent_id)
+            return self.dggrs.countSubZones(zone, 1)
+
+        @lru_cache(maxsize=100000)
+        def get_partition_ancestor(cell_id: str) -> str:
+            return self._get_ancestor(
+                self.dggrs.getZoneFromTextID(cell_id), get_level(cell_id) - parent_res
+            )
+
+        # Initialise cell data and active set
+        cell_data = {cid: df.loc[cid, band_cols].to_dict() for cid in df.index}
+        active_cells = set(df.index)
+
+        # Compact level by level from fine to coarse
+        for current_level in range(resolution, parent_res, -1):
+            level_cells = {
+                cid for cid in active_cells if get_level(cid) == current_level
+            }
+
+            if not level_cells:
+                continue
+
+            # Build parent->children and child->parents mappings
+            parent_groups = {}
+            child_to_parents = {}
+
+            for child_id in level_cells:
+                parents = get_parents(child_id)
+                child_to_parents[child_id] = parents
+
+                for parent_id in parents:
+                    parent_groups.setdefault(parent_id, []).append(child_id)
+
+            # Identify compactable parents (all children present with equal values)
+            compactable = {}
+            for parent_id, children in parent_groups.items():
+                if len(children) != get_child_count(parent_id):
+                    continue
+
+                # Check if all band values are qual across children
+                first_data = cell_data[children[0]]
+                if all(
+                    all(cell_data[c][band] == first_data[band] for c in children)
+                    for band in band_cols
+                ):
+                    # compactable[parent_id] = (children, first_data.copy())
+                    compactable[parent_id] = first_data.copy()
+
+            # Remove children where ALL parents compact
+            children_to_remove = {
+                child
+                for child, parents in child_to_parents.items()
+                if all(parent in compactable for parent in parents)
+            }
+
+            # Update active cells
+            active_cells -= children_to_remove
+            for child_id in children_to_remove:
+                del cell_data[child_id]
+
+            # Add compacted parents
+            for parent_id, data in compactable.items():
+                cell_data[parent_id] = data
+                active_cells.add(parent_id)
+
+        # Build result dataframe with both fine and parent resolution columns
+        if not active_cells:
+            return pd.DataFrame(
+                columns=[index_col, partition_col] + band_cols
+            ).set_index(index_col)
+
+        result_data = [
+            {
+                index_col: cid,
+                partition_col: get_partition_ancestor(cid),
+                **cell_data[cid],
+            }
+            for cid in active_cells
+        ]
+
+        return pd.DataFrame(result_data).set_index(index_col)
 
 
 class ISEA4RRasterIndexer(DGGALRasterIndexer):
