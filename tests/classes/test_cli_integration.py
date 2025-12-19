@@ -57,27 +57,32 @@ class TestAllDGGS(TestRunthrough):
         for spec in SPECS:
             res = safe_resolution(spec)
             for geo in (None, "point", "polygon"):
-                timer = LiveTimer(f"Testing {spec.pretty}\t--geo {geo}")
-                timer.start()
-                try:
-                    with self.subTest(dggs=spec.name, geo=geo):
-                        args = [
-                            spec.name,
-                            TEST_FILE_PATH,
-                            str(TEST_OUTPUT_PATH),
-                            "-r",
-                            str(res),
-                        ]
-                        if geo:
-                            args += ["-g", geo]
-                        result = runner.invoke(cli, args, catch_exceptions=False)
-                        self.assertEqual(
-                            result.exit_code,
-                            0,
-                            f"{spec.name} {geo or 'none'} failed:\n{result.output}",
-                        )
-                finally:
-                    timer.stop()
+                for compaction in (True, False):
+                    timer = LiveTimer(
+                        f"Testing {spec.pretty}\t--geo {geo} {'-co' if compaction else ''}"
+                    )
+                    timer.start()
+                    try:
+                        with self.subTest(dggs=spec.name, geo=geo):
+                            args = [
+                                spec.name,
+                                TEST_FILE_PATH,
+                                str(TEST_OUTPUT_PATH),
+                                "-r",
+                                str(res),
+                            ]
+                            if geo:
+                                args += ["-g", geo]
+                            if compaction:
+                                args += ["-co"]
+                            result = runner.invoke(cli, args, catch_exceptions=False)
+                            self.assertEqual(
+                                result.exit_code,
+                                0,
+                                f"{spec.name} {geo or 'none'} failed:\n{result.output}",
+                            )
+                    finally:
+                        timer.stop()
 
     def test_help_shows_input_output(self):
         runner = CliRunner()
