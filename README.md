@@ -24,7 +24,15 @@ Contributions (particularly for additional DGGSs), suggestions, bug reports and 
 
 ## Installation
 
-`pip install raster2dggs`
+This tool makes use of optional extras to allow you to install a limited subset of DGGSs.
+
+If you want all possible:
+
+`pip install raster2dggs[all]`
+
+If you want only a subset, use the pattern `pip install raster2dggs[a5]` (for one) or `pip install raster2dggs[h3,s2,isea4r]` (for multiple).
+
+A bare `pip install raster2dggs` **will not install any DGGS backends**.
 
 ## Usage
 
@@ -249,7 +257,7 @@ With some styling applied:
 PyPi:
 
 ```bash
-pip install raster2dggs
+pip install raster2dggs[all]
 ```
 
 Conda environment:
@@ -265,7 +273,7 @@ dependencies:
   - gdal>=3.8.5
   - pyproj=3.6.*
   - pip:
-    - raster2dggs>=0.7.2
+    - raster2dggs[all]>=0.7.2
 ```
 
 <!-- TODO: package raster2dggs and make available on Conda without pip -->
@@ -281,7 +289,9 @@ In brief, to get started:
 - Create the virtual environment with `poetry init`. This will install necessary dependencies.
 - Subsequently, the virtual environment can be re-activated with `poetry env activate`.
 
-If you run `poetry install`, the CLI tool will be aliased so you can simply use `raster2dggs` rather than `poetry run raster2dggs`, which is the alternative if you do not `poetry install`.
+If you run `poetry install -E all --with dev`, the CLI tool will be aliased so you can simply use `raster2dggs` rather than `poetry run raster2dggs`, which is the alternative if you do not `poetry install -E all --with dev`.
+
+For partial backend support you can consider `poetry install --with dev -E h3 -E a5` etc. To check what is installed: `poetry show --tree`.
 
 #### Code formatting
 

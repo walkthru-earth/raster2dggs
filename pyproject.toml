@@ -19,7 +19,6 @@ classifiers = [
 python = "^3.11"
 gdal = "^3.8"
 geopandas = "^1.0"
-h3pandas = "^0.3"
 rioxarray = "^0.19"
 dask-geopandas = "^0.5"
 pyarrow = "^20.0"
@@ -31,14 +30,15 @@ click-log = "^0.4"
 rasterio = "^1.4"
 dask-expr = "^2"
 numpy = "^2"
-rhppandas = "^0.2"
-rhealpixdggs = "^0.5"
-python-geohash = "^0.8"
-maidenhead = "^1.8"
-s2sphere = "^0.2"
-pya5 = "^0.5"
 geoarrow-pyarrow = "^0.2.0"
-dggal = "^0.0.6"
+h3pandas = { version = "^0.3", optional = true }
+rhppandas = {version = "^0.2", optional = true}
+rhealpixdggs = {version = "^0.5", optional = true}
+python-geohash = {version = "^0.8", optional = true}
+maidenhead = {version = "^1.8", optional = true}
+s2sphere = {version = "^0.2", optional = true}
+pya5 = {version = "^0.5", optional = true}
+dggal = {version = "^0.0.6", optional = true}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.2.2"
@@ -54,3 +54,31 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 88
+
+[tool.poetry.extras]
+h3 = ["h3pandas"]
+rhp = ["rhppandas","rhealpixdggs"]
+geohash = ["python-geohash"]
+maidenhead = ["maidenhead"]
+s2 = ["s2sphere"]
+a5 = ["pya5"]
+isea4r = ["dggal"]
+isea9r = ["dggal"]
+isea3h = ["dggal"]
+isea7h = ["dggal"]
+isea7h_z7 = ["dggal"]
+ivea4r = ["dggal"]
+ivea9r = ["dggal"]
+ivea3h = ["dggal"]
+ivea7h = ["dggal"]
+ivea7h_z7 = ["dggal"]
+rtea4r = ["dggal"]
+rtea9r = ["dggal"]
+rtea3h = ["dggal"]
+rtea7h = ["dggal"]
+rtea7h_z7 = ["dggal"]
+healpix = ["dggal"]
+rhealpix = ["dggal"]
+# Convenience extras
+dggal = ["dggal"]
+all = ["h3pandas", "rhppandas", "rhealpixdggs", "python-geohash", "s2sphere", "pya5", "maidenhead", "dggal"]
