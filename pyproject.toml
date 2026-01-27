@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "raster2dggs"
-version = "0.7.1"
+version = "0.7.2"
 description = ""
 authors = ["James Ardo <ardoj@landcareresearch.co.nz>"]
 maintainers = ["Richard Law <lawr@landcareresearch.co.nz>"]
@@ -31,7 +31,7 @@ click-log = "^0.4"
 rasterio = "^1.4"
 dask-expr = "^2"
 numpy = "^2"
-rhppandas = "^0.1"
+rhppandas = "^0.2"
 rhealpixdggs = "^0.5"
 python-geohash = "^0.8"
 maidenhead = "^1.8"
